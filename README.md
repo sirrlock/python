@@ -1,5 +1,10 @@
 # sirr (Python)
 
+[![CI](https://github.com/SirrVault/python/actions/workflows/ci.yml/badge.svg)](https://github.com/SirrVault/python/actions/workflows/ci.yml)
+[![PyPI](https://img.shields.io/pypi/v/sirr)](https://pypi.org/project/sirr/)
+[![Python](https://img.shields.io/pypi/pyversions/sirr)](https://pypi.org/project/sirr/)
+[![License: MIT](https://img.shields.io/badge/license-MIT-blue.svg)](LICENSE)
+
 **Ephemeral secrets for Python AI agents. Credentials that delete themselves.**
 
 `sirr` is the Python client for [Sirr](https://github.com/SirrVault/sirr) — a self-hosted vault where every secret expires by read count, by time, or both. Built for the Python AI ecosystem: LangChain, CrewAI, AutoGen, LlamaIndex, and any framework that needs to hand credentials to agents without leaving them lying around forever.
