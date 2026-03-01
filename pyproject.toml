@@ -35,8 +35,8 @@ dev = [
 ]
 
 [project.urls]
-Homepage = "https://github.com/SirrVault/python"
-Repository = "https://github.com/SirrVault/python"
+Homepage = "https://github.com/sirrlock/python"
+Repository = "https://github.com/sirrlock/python"
 
 [tool.hatch.build.targets.wheel]
 packages = ["src/sirr"]

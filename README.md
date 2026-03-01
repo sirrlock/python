@@ -1,13 +1,13 @@
 # sirr (Python)
 
-[![CI](https://github.com/SirrVault/python/actions/workflows/ci.yml/badge.svg)](https://github.com/SirrVault/python/actions/workflows/ci.yml)
+[![CI](https://github.com/sirrlock/python/actions/workflows/ci.yml/badge.svg)](https://github.com/sirrlock/python/actions/workflows/ci.yml)
 [![PyPI](https://img.shields.io/pypi/v/sirr)](https://pypi.org/project/sirr/)
 [![Python](https://img.shields.io/pypi/pyversions/sirr)](https://pypi.org/project/sirr/)
 [![License: MIT](https://img.shields.io/badge/license-MIT-blue.svg)](LICENSE)
 
 **Ephemeral secrets for Python AI agents. Credentials that delete themselves.**
 
-`sirr` is the Python client for [Sirr](https://github.com/SirrVault/sirr) — a self-hosted vault where every secret expires by read count, by time, or both. Built for the Python AI ecosystem: LangChain, CrewAI, AutoGen, LlamaIndex, and any framework that needs to hand credentials to agents without leaving them lying around forever.
+`sirr` is the Python client for [Sirr](https://github.com/sirrlock/sirr) — a self-hosted vault where every secret expires by read count, by time, or both. Built for the Python AI ecosystem: LangChain, CrewAI, AutoGen, LlamaIndex, and any framework that needs to hand credentials to agents without leaving them lying around forever.
 
 ---
 
@@ -165,9 +165,9 @@ def inject_test_secrets():
 
 | Package | Description |
 |---------|-------------|
-| [sirr](https://github.com/SirrVault/sirr) | Rust monorepo: `sirrd` server + `sirr` CLI |
-| [@sirrvault/mcp](https://github.com/SirrVault/mcp) | MCP server for AI assistants |
-| [@sirrvault/node](https://github.com/SirrVault/node) | Node.js / TypeScript SDK |
-| [Sirr.Client (NuGet)](https://github.com/SirrVault/dotnet) | .NET SDK |
+| [sirr](https://github.com/sirrlock/sirr) | Rust monorepo: `sirrd` server + `sirr` CLI |
+| [@sirrvault/mcp](https://github.com/sirrlock/mcp) | MCP server for AI assistants |
+| [@sirrvault/node](https://github.com/sirrlock/node) | Node.js / TypeScript SDK |
+| [Sirr.Client (NuGet)](https://github.com/sirrlock/dotnet) | .NET SDK |
 | [sirr.dev](https://sirr.dev) | Documentation |
 | [sirrlock.com](https://sirrlock.com) | Managed cloud + license keys |
