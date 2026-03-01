@@ -3,6 +3,16 @@
 from sirr._async_client import AsyncSirrClient
 from sirr._client import SirrClient
 from sirr._exceptions import SirrError
-from sirr._models import SecretMeta
+from sirr._models import ApiKey, ApiKeyCreateResult, AuditEvent, SecretMeta, Webhook, WebhookCreateResult
 
-__all__ = ["AsyncSirrClient", "SecretMeta", "SirrClient", "SirrError"]
+__all__ = [
+    "ApiKey",
+    "ApiKeyCreateResult",
+    "AsyncSirrClient",
+    "AuditEvent",
+    "SecretMeta",
+    "SirrClient",
+    "SirrError",
+    "Webhook",
+    "WebhookCreateResult",
+]

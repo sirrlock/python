@@ -7,7 +7,7 @@ from urllib.parse import quote
 
 import httpx
 
-from sirr._models import SecretMeta
+from sirr._models import AuditEvent, ApiKey, ApiKeyCreateResult, SecretMeta, Webhook, WebhookCreateResult
 from sirr._transport import build_headers, handle_response, normalize_server
 
 
@@ -88,3 +88,71 @@ class SirrClient:
                     os.environ.pop(k, None)
                 else:
                     os.environ[k] = prev
+
+    def get_audit_log(
+        self,
+        *,
+        since: int | None = None,
+        until: int | None = None,
+        action: str | None = None,
+        limit: int | None = None,
+    ) -> list[AuditEvent]:
+        params: dict[str, str] = {}
+        if since is not None:
+            params["since"] = str(since)
+        if until is not None:
+            params["until"] = str(until)
+        if action is not None:
+            params["action"] = action
+        if limit is not None:
+            params["limit"] = str(limit)
+        resp = self._client.get(f"{self._base}/audit", params=params)
+        data = handle_response(resp)
+        return [AuditEvent.from_dict(e) for e in data["events"]]
+
+    def create_webhook(
+        self,
+        url: str,
+        *,
+        events: list[str] | None = None,
+    ) -> WebhookCreateResult:
+        body: dict = {"url": url}
+        if events is not None:
+            body["events"] = events
+        resp = self._client.post(f"{self._base}/webhooks", json=body)
+        data = handle_response(resp)
+        return WebhookCreateResult.from_dict(data)
+
+    def list_webhooks(self) -> list[Webhook]:
+        resp = self._client.get(f"{self._base}/webhooks")
+        data = handle_response(resp)
+        return [Webhook.from_dict(w) for w in data["webhooks"]]
+
+    def delete_webhook(self, id: str) -> bool:
+        resp = self._client.delete(f"{self._base}/webhooks/{quote(id, safe='')}")
+        result = handle_response(resp, allow_404=True)
+        return result is not None
+
+    def create_api_key(
+        self,
+        label: str,
+        *,
+        permissions: list[str] | None = None,
+        prefix: str | None = None,
+    ) -> ApiKeyCreateResult:
+        body: dict = {"label": label, "permissions": permissions or ["read", "write"]}
+        if prefix is not None:
+            body["prefix"] = prefix
+        resp = self._client.post(f"{self._base}/keys", json=body)
+        data = handle_response(resp)
+        return ApiKeyCreateResult.from_dict(data)
+
+    def list_api_keys(self) -> list[ApiKey]:
+        resp = self._client.get(f"{self._base}/keys")
+        data = handle_response(resp)
+        return [ApiKey.from_dict(k) for k in data["keys"]]
+
+    def delete_api_key(self, id: str) -> bool:
+        resp = self._client.delete(f"{self._base}/keys/{quote(id, safe='')}")
+        result = handle_response(resp, allow_404=True)
+        return result is not None
