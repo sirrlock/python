@@ -9,7 +9,7 @@ description = "Python client for the Sirr ephemeral secret vault"
 readme = "README.md"
 license = "MIT"
 requires-python = ">=3.10"
-authors = [{ name = "SirrVault" }]
+authors = [{ name = "sirrlock" }]
 keywords = ["secrets", "vault", "ephemeral", "ai", "agents"]
 classifiers = [
     "Development Status :: 4 - Beta",

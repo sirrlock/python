@@ -166,8 +166,8 @@ def inject_test_secrets():
 | Package | Description |
 |---------|-------------|
 | [sirr](https://github.com/sirrlock/sirr) | Rust monorepo: `sirrd` server + `sirr` CLI |
-| [@sirrvault/mcp](https://github.com/sirrlock/mcp) | MCP server for AI assistants |
-| [@sirrvault/node](https://github.com/sirrlock/node) | Node.js / TypeScript SDK |
+| [@sirrlock/mcp](https://github.com/sirrlock/mcp) | MCP server for AI assistants |
+| [@sirrlock/node](https://github.com/sirrlock/node) | Node.js / TypeScript SDK |
 | [Sirr.Client (NuGet)](https://github.com/sirrlock/dotnet) | .NET SDK |
 | [sirr.dev](https://sirr.dev) | Documentation |
 | [sirrlock.com](https://sirrlock.com) | Managed cloud + license keys |
