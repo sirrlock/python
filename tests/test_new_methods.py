@@ -4,7 +4,6 @@ import respx
 
 from sirr import ApiKey, ApiKeyCreateResult, AuditEvent, SirrClient, Webhook, WebhookCreateResult
 
-
 BASE = "http://localhost:8080"
 
 
@@ -22,7 +21,16 @@ def client(mock_api):
 
 class TestAuditLog:
     def test_get_audit_log(self, client, mock_api):
-        events = [{"id": 1, "timestamp": 1000, "action": "secret.create", "key": "K", "source_ip": "127.0.0.1", "success": True, "detail": None}]
+        event = {
+            "id": 1,
+            "timestamp": 1000,
+            "action": "secret.create",
+            "key": "K",
+            "source_ip": "127.0.0.1",
+            "success": True,
+            "detail": None,
+        }
+        events = [event]
         mock_api.get("/audit").mock(return_value=httpx.Response(200, json={"events": events}))
         result = client.get_audit_log()
         assert len(result) == 1
@@ -39,37 +47,64 @@ class TestAuditLog:
 
 class TestWebhooks:
     def test_create_webhook(self, client, mock_api):
-        mock_api.post("/webhooks").mock(return_value=httpx.Response(201, json={"id": "wh_1", "secret": "s3c"}))
+        mock_api.post("/webhooks").mock(
+            return_value=httpx.Response(201, json={"id": "wh_1", "secret": "s3c"})
+        )
         result = client.create_webhook("https://example.com/hook")
         assert isinstance(result, WebhookCreateResult)
         assert result.id == "wh_1"
 
     def test_list_webhooks(self, client, mock_api):
-        wh = [{"id": "wh_1", "url": "https://example.com", "events": ["*"], "created_at": 1000}]
+        wh = [
+            {
+                "id": "wh_1",
+                "url": "https://example.com",
+                "events": ["*"],
+                "created_at": 1000,
+            }
+        ]
         mock_api.get("/webhooks").mock(return_value=httpx.Response(200, json={"webhooks": wh}))
         result = client.list_webhooks()
         assert len(result) == 1
         assert isinstance(result[0], Webhook)
 
     def test_delete_webhook(self, client, mock_api):
-        mock_api.delete("/webhooks/wh_1").mock(return_value=httpx.Response(200, json={"deleted": True}))
+        mock_api.delete("/webhooks/wh_1").mock(
+            return_value=httpx.Response(200, json={"deleted": True})
+        )
         assert client.delete_webhook("wh_1") is True
 
     def test_delete_webhook_not_found(self, client, mock_api):
-        mock_api.delete("/webhooks/wh_x").mock(return_value=httpx.Response(404, json={"error": "not found"}))
+        mock_api.delete("/webhooks/wh_x").mock(
+            return_value=httpx.Response(404, json={"error": "not found"})
+        )
         assert client.delete_webhook("wh_x") is False
 
 
 class TestApiKeys:
     def test_create_api_key(self, client, mock_api):
-        resp = {"id": "abc", "key": "sirr_key_123", "label": "ci", "permissions": ["read"], "prefix": None}
+        resp = {
+            "id": "abc",
+            "key": "sirr_key_123",
+            "label": "ci",
+            "permissions": ["read"],
+            "prefix": None,
+        }
         mock_api.post("/keys").mock(return_value=httpx.Response(201, json=resp))
         result = client.create_api_key("ci", permissions=["read"])
         assert isinstance(result, ApiKeyCreateResult)
         assert result.key == "sirr_key_123"
 
     def test_list_api_keys(self, client, mock_api):
-        keys = [{"id": "abc", "label": "ci", "permissions": ["read"], "prefix": None, "created_at": 1000}]
+        keys = [
+            {
+                "id": "abc",
+                "label": "ci",
+                "permissions": ["read"],
+                "prefix": None,
+                "created_at": 1000,
+            }
+        ]
         mock_api.get("/keys").mock(return_value=httpx.Response(200, json={"keys": keys}))
         result = client.list_api_keys()
         assert len(result) == 1
@@ -80,5 +115,7 @@ class TestApiKeys:
         assert client.delete_api_key("abc") is True
 
     def test_delete_api_key_not_found(self, client, mock_api):
-        mock_api.delete("/keys/nope").mock(return_value=httpx.Response(404, json={"error": "not found"}))
+        mock_api.delete("/keys/nope").mock(
+            return_value=httpx.Response(404, json={"error": "not found"})
+        )
         assert client.delete_api_key("nope") is False

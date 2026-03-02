@@ -7,7 +7,14 @@ from urllib.parse import quote
 
 import httpx
 
-from sirr._models import AuditEvent, ApiKey, ApiKeyCreateResult, SecretMeta, Webhook, WebhookCreateResult
+from sirr._models import (
+    ApiKey,
+    ApiKeyCreateResult,
+    AuditEvent,
+    SecretMeta,
+    Webhook,
+    WebhookCreateResult,
+)
 from sirr._transport import build_headers, handle_response, normalize_server
 
 
