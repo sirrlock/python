@@ -1,0 +1,26 @@
+__pycache__/
+*.py[cod]
+*.egg-info/
+dist/
+build/
+.eggs/
+*.egg
+.ruff_cache/
+.pytest_cache/
+.coverage
+htmlcov/
+*.so
+.venv/
+venv/
+env/
+
+# IDE
+.idea/
+
+# macOS
+.DS_Store
+
+# Local dev
+.claude/
+.worktrees/
+.playwright-mcp/

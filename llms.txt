@@ -1,0 +1,47 @@
+# sirr — Sirr Python SDK
+
+Python client for the Sirr ephemeral secret vault HTTP API.
+Published to PyPI as `sirr`. Supports sync and async usage via httpx.
+Python 3.10+.
+
+## Install
+
+pip install sirr
+
+## Sync Usage
+
+from sirr import SirrClient
+
+client = SirrClient(server='http://localhost:39999', token='your-key')
+
+client.push('DB_PASSWORD', 's3cr3t', ttl=3600, reads=1)
+value = client.get('DB_PASSWORD')    # None if burned/expired
+client.delete('DB_PASSWORD')
+secrets = client.list()              # list[SecretMeta]
+all_secrets = client.pull_all()      # dict[str, str]
+client.prune()
+
+with client.env():
+    # os.environ populated with all secrets
+    pass
+
+## Async Usage
+
+from sirr import AsyncSirrClient
+import asyncio
+
+async def main():
+    client = AsyncSirrClient(server='http://localhost:39999', token='your-key')
+    await client.push('KEY', 'value')
+    value = await client.get('KEY')
+    async with client.env():
+        pass
+
+## Errors
+
+- get() returns None on 404 — never raises for not-found
+- All other non-2xx responses raise SirrError (has .status int)
+
+## Source
+
+github.com/sirrlock/python
