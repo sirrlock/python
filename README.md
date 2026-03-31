@@ -25,7 +25,7 @@ Sirr gives you a better primitive: **credentials that enforce their own expiry.*
 ```python
 # Push a dead drop — returns a one-time URL
 result = sirr.push(api_key, reads=1, ttl=600)
-print(result.url)  # → https://sirrlock.com/s/abc123
+print(result.url)  # → https://sirr.sirrlock.com/s/abc123
 
 # Or set an org-scoped named secret
 sirr.set("OPENAI_KEY", api_key, org="acme", reads=1, ttl=600)
@@ -51,13 +51,13 @@ import os
 from sirr import SirrClient, SecretExistsError
 
 sirr = SirrClient(
-    server=os.environ.get("SIRR_SERVER", "https://sirrlock.com"),
+    server=os.environ.get("SIRR_SERVER", "https://sirr.sirrlock.com"),
     token=os.environ["SIRR_TOKEN"],
 )
 
 # Push a public dead drop — returns { id, url }
 result = sirr.push("sk-...", reads=1, ttl=3600)
-print(result.url)  # → https://sirrlock.com/s/abc123
+print(result.url)  # → https://sirr.sirrlock.com/s/abc123
 
 # Set an org-scoped named secret — raises SecretExistsError on 409
 sirr.set("DB_URL", "postgres://...", org="acme", ttl=86400, reads=3)
@@ -217,7 +217,7 @@ all secret, audit, webhook, and prune operations to that organization:
 from sirr import SirrClient
 
 sirr = SirrClient(
-    server="https://sirrlock.com",
+    server="https://sirr.sirrlock.com",
     token=os.environ["SIRR_TOKEN"],
 )
 
@@ -226,7 +226,7 @@ sirr.set("DB_URL", "postgres://...", org="acme", reads=3)
 value = sirr.get("DB_URL", org="acme")
 
 # Audit, list, and webhook calls still support org at the client level
-sirr_acme = SirrClient(server="https://sirrlock.com", token=..., org="acme")
+sirr_acme = SirrClient(server="https://sirr.sirrlock.com", token=..., org="acme")
 events = sirr_acme.get_audit_log()
 ```
 
@@ -263,8 +263,10 @@ roles = sirr.list_roles(org.id)
 sirr.delete_role(org.id, role.name)
 ```
 
-Permission strings use single letters: `r` read-own, `R` read-any, `w` write-own, `W` write-any,
-`l` list-own, `L` list-any, `d` delete-own, `D` delete-any, `m` manage.
+Permission strings use single letters: `r` read-own, `R` read-org, `l` list-own, `L` list-org,
+`c` create, `C` create-on-behalf, `p` patch-own, `P` patch-org, `a` account-read,
+`A` account-read-org, `m` account-manage, `M` manage-org, `S` sirr-admin,
+`d` delete-own, `D` delete-org.
 
 ### Async
 
