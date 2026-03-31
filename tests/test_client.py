@@ -12,9 +12,7 @@ from sirr import SecretExistsError, SirrClient, SirrError
 
 
 def test_push_returns_id(client: SirrClient, mock_api: respx.Router):
-    mock_api.post("/secrets").mock(
-        return_value=httpx.Response(200, json={"id": "abcd1234" * 8})
-    )
+    mock_api.post("/secrets").mock(return_value=httpx.Response(200, json={"id": "abcd1234" * 8}))
     result = client.push("secret-value", ttl=600, reads=1)
     assert result["id"] == "abcd1234" * 8
 

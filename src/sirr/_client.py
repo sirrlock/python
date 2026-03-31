@@ -90,9 +90,7 @@ class SirrClient:
         """Org-scoped named secret — requires org.  Returns {"key": "<key>"}."""
         effective_org = org or self._org
         if effective_org is None:
-            raise ValueError(
-                "set() requires an org — pass org= to set() or to SirrClient()"
-            )
+            raise ValueError("set() requires an org — pass org= to set() or to SirrClient()")
         body: dict = {"key": key, "value": value}
         if ttl is not None:
             body["ttl_seconds"] = ttl

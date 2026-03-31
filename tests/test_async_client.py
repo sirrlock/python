@@ -12,9 +12,7 @@ from sirr import AsyncSirrClient, SecretExistsError, SirrError
 
 
 async def test_push_returns_id(async_client: AsyncSirrClient, mock_api: respx.Router):
-    mock_api.post("/secrets").mock(
-        return_value=httpx.Response(200, json={"id": "abcd1234" * 8})
-    )
+    mock_api.post("/secrets").mock(return_value=httpx.Response(200, json={"id": "abcd1234" * 8}))
     result = await async_client.push("v", ttl=60, reads=2)
     assert result["id"] == "abcd1234" * 8
 
@@ -35,9 +33,7 @@ async def test_push_no_key_in_body(async_client: AsyncSirrClient, mock_api: resp
 
 
 async def test_set_returns_key(mock_api: respx.Router):
-    mock_api.post("/orgs/myorg/secrets").mock(
-        return_value=httpx.Response(200, json={"key": "K"})
-    )
+    mock_api.post("/orgs/myorg/secrets").mock(return_value=httpx.Response(200, json={"key": "K"}))
     async with AsyncSirrClient(server="https://vault.example.com", token="t", org="myorg") as c:
         result = await c.set("K", "v")
     assert result["key"] == "K"

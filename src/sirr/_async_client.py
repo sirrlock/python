@@ -91,9 +91,7 @@ class AsyncSirrClient:
         """Org-scoped named secret — requires org.  Returns {"key": "<key>"}."""
         effective_org = org or self._org
         if effective_org is None:
-            raise ValueError(
-                "set() requires an org — pass org= to set() or to AsyncSirrClient()"
-            )
+            raise ValueError("set() requires an org — pass org= to set() or to AsyncSirrClient()")
         body: dict = {"key": key, "value": value}
         if ttl is not None:
             body["ttl_seconds"] = ttl
