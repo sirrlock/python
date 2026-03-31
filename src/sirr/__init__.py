@@ -2,7 +2,7 @@
 
 from sirr._async_client import AsyncSirrClient
 from sirr._client import SirrClient
-from sirr._exceptions import SirrError, SirrSealed
+from sirr._exceptions import SecretExistsError, SirrError, SirrSealed
 from sirr._models import (
     ApiKeyCreateResult,
     AuditEvent,
@@ -24,6 +24,7 @@ __all__ = [
     "Org",
     "Principal",
     "Role",
+    "SecretExistsError",
     "SecretHead",
     "SecretMeta",
     "SirrClient",

@@ -60,11 +60,11 @@ async def async_public_client(mock_api):
 
 
 class TestOrgScopedUrls:
-    def test_push_uses_org_prefix(self, org_client: SirrClient, mock_api: respx.Router):
+    def test_set_uses_org_prefix(self, org_client: SirrClient, mock_api: respx.Router):
         route = mock_api.post(f"/orgs/{ORG}/secrets").mock(
             return_value=httpx.Response(200, json={"key": "K"})
         )
-        org_client.push("K", "v")
+        org_client.set("K", "v")
         assert route.called
 
     def test_get_uses_org_prefix(self, org_client: SirrClient, mock_api: respx.Router):
@@ -137,20 +137,21 @@ class TestOrgScopedUrls:
 
 class TestPublicBucketUrls:
     def test_push_no_org(self, public_client: SirrClient, mock_api: respx.Router):
-        route = mock_api.post("/secrets").mock(return_value=httpx.Response(200, json={"key": "K"}))
-        public_client.push("K", "v")
+        route = mock_api.post("/secrets").mock(
+            return_value=httpx.Response(200, json={"id": "deadbeef" * 8})
+        )
+        public_client.push("v")
         assert route.called
 
     def test_push_with_optional_fields(self, public_client: SirrClient, mock_api: respx.Router):
-        route = mock_api.post("/secrets").mock(return_value=httpx.Response(200, json={"key": "K"}))
-        public_client.push(
-            "K", "v", ttl=60, reads=1, delete=False, webhook_url="https://h.example.com"
+        route = mock_api.post("/secrets").mock(
+            return_value=httpx.Response(200, json={"id": "deadbeef" * 8})
         )
+        public_client.push("v", ttl=60, reads=1)
         body = json.loads(route.calls[0].request.content)
         assert body["ttl_seconds"] == 60
         assert body["max_reads"] == 1
-        assert body["delete"] is False
-        assert body["webhook_url"] == "https://h.example.com"
+        assert "key" not in body
 
     def test_get_no_org(self, public_client: SirrClient, mock_api: respx.Router):
         route = mock_api.get("/secrets/K").mock(
@@ -364,13 +365,13 @@ class TestAdmin:
 
 @pytest.mark.asyncio
 class TestAsyncOrgScoped:
-    async def test_push_uses_org_prefix(
+    async def test_set_uses_org_prefix(
         self, async_org_client: AsyncSirrClient, mock_api: respx.Router
     ):
         route = mock_api.post(f"/orgs/{ORG}/secrets").mock(
             return_value=httpx.Response(200, json={"key": "K"})
         )
-        await async_org_client.push("K", "v")
+        await async_org_client.set("K", "v")
         assert route.called
 
     async def test_get_uses_org_prefix(
@@ -417,8 +418,10 @@ class TestAsyncOrgScoped:
 @pytest.mark.asyncio
 class TestAsyncPublicBucket:
     async def test_push_no_org(self, async_public_client: AsyncSirrClient, mock_api: respx.Router):
-        route = mock_api.post("/secrets").mock(return_value=httpx.Response(200, json={"key": "K"}))
-        await async_public_client.push("K", "v")
+        route = mock_api.post("/secrets").mock(
+            return_value=httpx.Response(200, json={"id": "deadbeef" * 8})
+        )
+        await async_public_client.push("v")
         assert route.called
 
     async def test_get_no_org(self, async_public_client: AsyncSirrClient, mock_api: respx.Router):

@@ -6,37 +6,119 @@ import httpx
 import pytest
 import respx
 
-from sirr import SirrClient, SirrError
+from sirr import SecretExistsError, SirrClient, SirrError
+
+# ── push() — public dead-drop ────────────────────────────────────────────────
 
 
-def test_push(client: SirrClient, mock_api: respx.Router):
-    mock_api.post("/secrets").mock(return_value=httpx.Response(200, json={"key": "MY_KEY"}))
-    client.push("MY_KEY", "secret-value", ttl=600, reads=1)
+def test_push_returns_id(client: SirrClient, mock_api: respx.Router):
+    mock_api.post("/secrets").mock(
+        return_value=httpx.Response(200, json={"id": "abcd1234" * 8})
+    )
+    result = client.push("secret-value", ttl=600, reads=1)
+    assert result["id"] == "abcd1234" * 8
 
 
 def test_push_minimal(client: SirrClient, mock_api: respx.Router):
-    route = mock_api.post("/secrets").mock(return_value=httpx.Response(200, json={"key": "K"}))
-    client.push("K", "v")
-    body = route.calls[0].request.content
     import json
 
-    parsed = json.loads(body)
+    route = mock_api.post("/secrets").mock(
+        return_value=httpx.Response(200, json={"id": "deadbeef" * 8})
+    )
+    client.push("v")
+    parsed = json.loads(route.calls[0].request.content)
+    assert parsed == {"value": "v"}
     assert "ttl_seconds" not in parsed
     assert "max_reads" not in parsed
+    assert "key" not in parsed
 
 
-def test_get_found(client: SirrClient, mock_api: respx.Router):
-    mock_api.get("/secrets/MY_KEY").mock(
-        return_value=httpx.Response(200, json={"key": "MY_KEY", "value": "secret"})
+def test_push_with_opts(client: SirrClient, mock_api: respx.Router):
+    import json
+
+    route = mock_api.post("/secrets").mock(
+        return_value=httpx.Response(200, json={"id": "cafebabe" * 8})
     )
-    assert client.get("MY_KEY") == "secret"
+    client.push("val", ttl=3600, reads=2)
+    parsed = json.loads(route.calls[0].request.content)
+    assert parsed["ttl_seconds"] == 3600
+    assert parsed["max_reads"] == 2
 
 
-def test_get_not_found(client: SirrClient, mock_api: respx.Router):
+# ── set() — org-scoped named secret ─────────────────────────────────────────
+
+
+def test_set_returns_key(mock_api: respx.Router):
+    mock_api.post("/orgs/myorg/secrets").mock(
+        return_value=httpx.Response(200, json={"key": "MY_KEY"})
+    )
+    with SirrClient(server="https://vault.example.com", token="t", org="myorg") as c:
+        result = c.set("MY_KEY", "secret-value")
+    assert result["key"] == "MY_KEY"
+
+
+def test_set_with_org_param(mock_api: respx.Router):
+    import json
+
+    route = mock_api.post("/orgs/acme/secrets").mock(
+        return_value=httpx.Response(200, json={"key": "K"})
+    )
+    with SirrClient(server="https://vault.example.com", token="t") as c:
+        c.set("K", "v", org="acme")
+    parsed = json.loads(route.calls[0].request.content)
+    assert parsed["key"] == "K"
+    assert parsed["value"] == "v"
+
+
+def test_set_requires_org(client: SirrClient):
+    with pytest.raises(ValueError, match="org"):
+        client.set("K", "v")
+
+
+def test_set_409_raises_secret_exists_error(mock_api: respx.Router):
+    mock_api.post("/orgs/myorg/secrets").mock(
+        return_value=httpx.Response(
+            409, json={"error": "secret_exists", "message": "secret already exists"}
+        )
+    )
+    with (
+        SirrClient(server="https://vault.example.com", token="t", org="myorg") as c,
+        pytest.raises(SecretExistsError) as exc_info,
+    ):
+        c.set("DUPE", "value")
+    assert exc_info.value.status == 409
+
+
+# ── get() — public (by ID) vs org (by key) ──────────────────────────────────
+
+
+def test_get_public_by_id(client: SirrClient, mock_api: respx.Router):
+    mock_api.get("/secrets/abc123").mock(
+        return_value=httpx.Response(200, json={"id": "abc123", "value": "secret"})
+    )
+    assert client.get("abc123") == "secret"
+
+
+def test_get_public_not_found(client: SirrClient, mock_api: respx.Router):
     mock_api.get("/secrets/GONE").mock(
         return_value=httpx.Response(404, json={"error": "not found"})
     )
     assert client.get("GONE") is None
+
+
+def test_get_org_by_key(mock_api: respx.Router):
+    mock_api.get("/orgs/myorg/secrets/MY_KEY").mock(
+        return_value=httpx.Response(200, json={"key": "MY_KEY", "value": "secret"})
+    )
+    with SirrClient(server="https://vault.example.com", token="t", org="myorg") as c:
+        assert c.get("MY_KEY") == "secret"
+
+
+def test_get_org_via_param(client: SirrClient, mock_api: respx.Router):
+    mock_api.get("/orgs/acme/secrets/MY_KEY").mock(
+        return_value=httpx.Response(200, json={"key": "MY_KEY", "value": "val"})
+    )
+    assert client.get("MY_KEY", org="acme") == "val"
 
 
 def test_get_error(client: SirrClient, mock_api: respx.Router):
@@ -182,6 +264,6 @@ def test_url_encoding(client: SirrClient, mock_api: respx.Router):
     assert client.get("my/key") == "v"
 
 
-def test_push_allowed_keys_requires_org():
+def test_set_requires_org_no_client_org():
     with pytest.raises(ValueError, match="org"), SirrClient("http://localhost:8080", "t") as c:
-        c.push("K", "v", allowed_keys=["some-key"])
+        c.set("K", "v")

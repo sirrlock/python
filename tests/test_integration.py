@@ -130,8 +130,9 @@ def test_health(sirrd_server):
 
 def test_public_secret(sirrd_server):
     admin = SirrClient(server=BASE, token=MASTER_KEY)
-    admin.push("PY_PUBLIC", "hello-public", ttl=3600)
-    assert admin.get("PY_PUBLIC") == "hello-public"
+    result = admin.push("hello-public", ttl=3600)
+    secret_id = result["id"]
+    assert admin.get(secret_id) == "hello-public"
 
 
 def test_org_principals_created(org_principals_created):
@@ -141,7 +142,7 @@ def test_org_principals_created(org_principals_created):
 def test_org_secret_bootstrap_key_can_read(org_id, bootstrap_key):
     # bootstrap_key is the auto-init admin principal key (tied to org_id)
     admin = SirrClient(server=BASE, token=bootstrap_key, org=org_id)
-    admin.push("PY_PRIVATE", "secret123", ttl=3600, reads=10)
+    admin.set("PY_PRIVATE", "secret123", ttl=3600, reads=10)
     assert admin.get("PY_PRIVATE") == "secret123"
 
 
@@ -160,14 +161,14 @@ def test_org_secret_wrong_key_returns_401(org_id):
 
 def test_burn_after_read(org_id, bootstrap_key):
     admin = SirrClient(server=BASE, token=bootstrap_key, org=org_id)
-    admin.push("PY_BURN", "burnme", ttl=3600, reads=1)
+    admin.set("PY_BURN", "burnme", ttl=3600, reads=1)
     assert admin.get("PY_BURN") == "burnme"
     assert admin.get("PY_BURN") is None  # burned
 
 
 def test_head_does_not_consume_read(org_id, bootstrap_key):
     admin = SirrClient(server=BASE, token=bootstrap_key, org=org_id)
-    admin.push("PY_HEAD", "headval", ttl=3600, reads=3)
+    admin.set("PY_HEAD", "headval", ttl=3600, reads=3)
     before = admin.head("PY_HEAD")
     assert before is not None
     assert before.read_count == 0

@@ -6,19 +6,76 @@ import httpx
 import pytest
 import respx
 
-from sirr import AsyncSirrClient, SirrError
+from sirr import AsyncSirrClient, SecretExistsError, SirrError
+
+# ── push() — public dead-drop ────────────────────────────────────────────────
 
 
-async def test_push(async_client: AsyncSirrClient, mock_api: respx.Router):
-    mock_api.post("/secrets").mock(return_value=httpx.Response(200, json={"key": "K"}))
-    await async_client.push("K", "v", ttl=60, reads=2)
-
-
-async def test_get_found(async_client: AsyncSirrClient, mock_api: respx.Router):
-    mock_api.get("/secrets/K").mock(
-        return_value=httpx.Response(200, json={"key": "K", "value": "secret"})
+async def test_push_returns_id(async_client: AsyncSirrClient, mock_api: respx.Router):
+    mock_api.post("/secrets").mock(
+        return_value=httpx.Response(200, json={"id": "abcd1234" * 8})
     )
-    assert await async_client.get("K") == "secret"
+    result = await async_client.push("v", ttl=60, reads=2)
+    assert result["id"] == "abcd1234" * 8
+
+
+async def test_push_no_key_in_body(async_client: AsyncSirrClient, mock_api: respx.Router):
+    import json
+
+    route = mock_api.post("/secrets").mock(
+        return_value=httpx.Response(200, json={"id": "deadbeef" * 8})
+    )
+    await async_client.push("val")
+    parsed = json.loads(route.calls[0].request.content)
+    assert "key" not in parsed
+    assert parsed["value"] == "val"
+
+
+# ── set() — org-scoped named secret ─────────────────────────────────────────
+
+
+async def test_set_returns_key(mock_api: respx.Router):
+    mock_api.post("/orgs/myorg/secrets").mock(
+        return_value=httpx.Response(200, json={"key": "K"})
+    )
+    async with AsyncSirrClient(server="https://vault.example.com", token="t", org="myorg") as c:
+        result = await c.set("K", "v")
+    assert result["key"] == "K"
+
+
+async def test_set_requires_org(async_client: AsyncSirrClient):
+    with pytest.raises(ValueError, match="org"):
+        await async_client.set("K", "v")
+
+
+async def test_set_409_raises_secret_exists_error(mock_api: respx.Router):
+    mock_api.post("/orgs/myorg/secrets").mock(
+        return_value=httpx.Response(
+            409, json={"error": "secret_exists", "message": "secret already exists"}
+        )
+    )
+    async with AsyncSirrClient(server="https://vault.example.com", token="t", org="myorg") as c:
+        with pytest.raises(SecretExistsError) as exc_info:
+            await c.set("DUPE", "value")
+    assert exc_info.value.status == 409
+
+
+# ── get() — public (by ID) vs org (by key) ──────────────────────────────────
+
+
+async def test_get_public_by_id(async_client: AsyncSirrClient, mock_api: respx.Router):
+    mock_api.get("/secrets/abc123").mock(
+        return_value=httpx.Response(200, json={"id": "abc123", "value": "secret"})
+    )
+    assert await async_client.get("abc123") == "secret"
+
+
+async def test_get_org_by_key(mock_api: respx.Router):
+    mock_api.get("/orgs/myorg/secrets/MY_KEY").mock(
+        return_value=httpx.Response(200, json={"key": "MY_KEY", "value": "secret"})
+    )
+    async with AsyncSirrClient(server="https://vault.example.com", token="t", org="myorg") as c:
+        assert await c.get("MY_KEY") == "secret"
 
 
 async def test_get_not_found(async_client: AsyncSirrClient, mock_api: respx.Router):

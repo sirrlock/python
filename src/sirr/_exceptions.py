@@ -19,3 +19,15 @@ class SirrSealed(SirrError):
 
     def __init__(self, message: str = "secret is sealed — reads exhausted") -> None:
         super().__init__(410, message)
+
+
+class SecretExistsError(SirrError):
+    """Raised when a org secret key already exists (HTTP 409 Conflict).
+
+    The server returns this when ``POST /orgs/{org}/secrets`` is called with a
+    key that is already stored.  Either delete the existing secret first or use
+    a different key.
+    """
+
+    def __init__(self, message: str = "secret already exists") -> None:
+        super().__init__(409, message)

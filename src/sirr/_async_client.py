@@ -62,15 +62,38 @@ class AsyncSirrClient:
 
     async def push(
         self,
+        value: str,
+        *,
+        ttl: int | None = None,
+        reads: int | None = None,
+    ) -> dict:
+        """Public dead-drop push — no key, returns {"id": "<hex64>"}."""
+        body: dict = {"value": value}
+        if ttl is not None:
+            body["ttl_seconds"] = ttl
+        if reads is not None:
+            body["max_reads"] = reads
+        resp = await self._client.post(f"{self._base}/secrets", json=body)
+        return handle_response(resp)
+
+    async def set(
+        self,
         key: str,
         value: str,
         *,
+        org: str | None = None,
         ttl: int | None = None,
         reads: int | None = None,
         delete: bool | None = None,
         webhook_url: str | None = None,
         allowed_keys: list[str] | None = None,
-    ) -> None:
+    ) -> dict:
+        """Org-scoped named secret — requires org.  Returns {"key": "<key>"}."""
+        effective_org = org or self._org
+        if effective_org is None:
+            raise ValueError(
+                "set() requires an org — pass org= to set() or to AsyncSirrClient()"
+            )
         body: dict = {"key": key, "value": value}
         if ttl is not None:
             body["ttl_seconds"] = ttl
@@ -81,18 +104,26 @@ class AsyncSirrClient:
         if webhook_url is not None:
             body["webhook_url"] = webhook_url
         if allowed_keys is not None:
-            if self._org is None:
-                raise ValueError(
-                    "allowed_keys requires an org-scoped client (pass org= to AsyncSirrClient)"
-                )
             body["allowed_keys"] = allowed_keys
-        prefix = secrets_prefix(self._base, self._org)
-        resp = await self._client.post(prefix, json=body)
-        handle_response(resp)
+        url = f"{self._base}/orgs/{quote(effective_org, safe='')}/secrets"
+        resp = await self._client.post(url, json=body)
+        return handle_response(resp)
 
-    async def get(self, key: str) -> str | None:
-        prefix = secrets_prefix(self._base, self._org)
-        resp = await self._client.get(f"{prefix}/{quote(key, safe='')}")
+    async def get(self, id_or_key: str, *, org: str | None = None) -> str | None:
+        """Fetch a secret value.
+
+        Without org: routes to GET /secrets/{id} (public dead-drop, by ID).
+        With org (via parameter or client config): routes to GET /orgs/{org}/secrets/{key}.
+        Returns None if the secret does not exist or has expired.
+        """
+        effective_org = org or self._org
+        if effective_org is None:
+            url = f"{self._base}/secrets/{quote(id_or_key, safe='')}"
+        else:
+            org_slug = quote(effective_org, safe="")
+            key_slug = quote(id_or_key, safe="")
+            url = f"{self._base}/orgs/{org_slug}/secrets/{key_slug}"
+        resp = await self._client.get(url)
         data = handle_response(resp, allow_404=True)
         if data is None:
             return None
@@ -188,6 +219,7 @@ class AsyncSirrClient:
         since: int | None = None,
         until: int | None = None,
         action: str | None = None,
+        key: str | None = None,
         limit: int | None = None,
     ) -> list[AuditEvent]:
         params: dict[str, str] = {}
@@ -197,6 +229,8 @@ class AsyncSirrClient:
             params["until"] = str(until)
         if action is not None:
             params["action"] = action
+        if key is not None:
+            params["key"] = key
         if limit is not None:
             params["limit"] = str(limit)
         prefix = audit_prefix(self._base, self._org)

@@ -4,7 +4,7 @@ from typing import Any
 
 import httpx
 
-from sirr._exceptions import SirrError, SirrSealed
+from sirr._exceptions import SecretExistsError, SirrError, SirrSealed
 
 
 def build_headers(token: str) -> dict[str, str]:
@@ -42,6 +42,12 @@ def handle_response(response: httpx.Response, *, allow_404: bool = False) -> Any
     """
     if allow_404 and response.status_code == 404:
         return None
+    if response.status_code == 409:
+        try:
+            message = response.json().get("message", response.text)
+        except Exception:
+            message = response.text
+        raise SecretExistsError(message)
     if response.status_code == 410:
         try:
             message = response.json().get("error", response.text)
