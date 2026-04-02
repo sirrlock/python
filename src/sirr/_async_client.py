@@ -342,6 +342,24 @@ class AsyncSirrClient:
         data = handle_response(resp)
         return [Principal.from_dict(p) for p in data["principals"]]
 
+    async def create_principal_key(
+        self,
+        org_id: str,
+        principal_id: str,
+        name: str,
+        *,
+        valid_for_seconds: int | None = None,
+    ) -> ApiKeyCreateResult:
+        body: dict = {"name": name}
+        if valid_for_seconds is not None:
+            body["valid_for_seconds"] = valid_for_seconds
+        resp = await self._client.post(
+            f"{self._base}/orgs/{quote(org_id, safe='')}/principals/{quote(principal_id, safe='')}/keys",
+            json=body,
+        )
+        data = handle_response(resp)
+        return ApiKeyCreateResult.from_dict(data)
+
     async def delete_principal(self, org_id: str, id: str) -> bool:
         resp = await self._client.delete(
             f"{self._base}/orgs/{quote(org_id, safe='')}/principals/{quote(id, safe='')}"
