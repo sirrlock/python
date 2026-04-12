@@ -10,10 +10,10 @@ from sirr._models import (
 
 __all__ = [
     "AsyncSirrClient",
-    "SirrClient",
-    "SirrError",
-    "SecretResponse",
-    "SecretStatus",
     "AuditResponse",
     "SecretMetadata",
+    "SecretResponse",
+    "SecretStatus",
+    "SirrClient",
+    "SirrError",
 ]
