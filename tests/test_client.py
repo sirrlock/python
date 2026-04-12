@@ -1,267 +1,175 @@
 from __future__ import annotations
 
 import os
-
+import json
 import httpx
 import pytest
 import respx
 
-from sirr import SecretExistsError, SirrClient, SirrError
+from sirr import SirrClient, SirrError
 
-# ── push() — public dead-drop ────────────────────────────────────────────────
+# ── push() ──────────────────────────────────────────────────────────────────
 
-
-def test_push_returns_id(client: SirrClient, mock_api: respx.Router):
-    mock_api.post("/secrets").mock(return_value=httpx.Response(200, json={"id": "abcd1234" * 8}))
-    result = client.push("secret-value", ttl=600, reads=1)
-    assert result["id"] == "abcd1234" * 8
-
-
-def test_push_minimal(client: SirrClient, mock_api: respx.Router):
-    import json
-
-    route = mock_api.post("/secrets").mock(
-        return_value=httpx.Response(200, json={"id": "deadbeef" * 8})
+def test_push_returns_metadata(client: SirrClient, mock_api: respx.Router):
+    mock_api.post("/secret").mock(
+        return_value=httpx.Response(201, json={
+            "hash": "abc123",
+            "url": "http://localhost:7843/secret/abc123",
+            "expires_at": 1700003600,
+            "reads_remaining": 1,
+            "owned": False
+        })
     )
-    client.push("v")
-    parsed = json.loads(route.calls[0].request.content)
-    assert parsed == {"value": "v"}
-    assert "ttl_seconds" not in parsed
-    assert "max_reads" not in parsed
-    assert "key" not in parsed
+    result = client.push("secret-value", ttl=3600, reads=1)
+    assert result.hash == "abc123"
+    assert result.reads_remaining == 1
+    assert result.owned is False
 
-
-def test_push_with_opts(client: SirrClient, mock_api: respx.Router):
-    import json
-
-    route = mock_api.post("/secrets").mock(
-        return_value=httpx.Response(200, json={"id": "cafebabe" * 8})
+def test_push_with_prefix(client: SirrClient, mock_api: respx.Router):
+    route = mock_api.post("/secret").mock(
+        return_value=httpx.Response(201, json={
+            "hash": "db_abc123",
+            "url": "http://localhost:7843/secret/db_abc123",
+            "expires_at": None,
+            "reads_remaining": None,
+            "owned": True
+        })
     )
-    client.push("val", ttl=3600, reads=2)
-    parsed = json.loads(route.calls[0].request.content)
-    assert parsed["ttl_seconds"] == 3600
-    assert parsed["max_reads"] == 2
+    client.push("val", prefix="db_", reads=None)
+    sent = json.loads(route.calls[0].request.content)
+    assert sent["value"] == "val"
+    assert sent["prefix"] == "db_"
+    assert "reads" not in sent
 
+# ── get() ───────────────────────────────────────────────────────────────────
 
-# ── set() — org-scoped named secret ─────────────────────────────────────────
-
-
-def test_set_returns_key(mock_api: respx.Router):
-    mock_api.post("/orgs/myorg/secrets").mock(
-        return_value=httpx.Response(200, json={"key": "MY_KEY"})
+def test_get_returns_plaintext(client: SirrClient, mock_api: respx.Router):
+    mock_api.get("/secret/abc123").mock(
+        return_value=httpx.Response(200, content="my-secret")
     )
-    with SirrClient(server="https://vault.example.com", token="t", org="myorg") as c:
-        result = c.set("MY_KEY", "secret-value")
-    assert result["key"] == "MY_KEY"
+    assert client.get("abc123") == "my-secret"
 
-
-def test_set_with_org_param(mock_api: respx.Router):
-    import json
-
-    route = mock_api.post("/orgs/acme/secrets").mock(
-        return_value=httpx.Response(200, json={"key": "K"})
-    )
-    with SirrClient(server="https://vault.example.com", token="t") as c:
-        c.set("K", "v", org="acme")
-    parsed = json.loads(route.calls[0].request.content)
-    assert parsed["key"] == "K"
-    assert parsed["value"] == "v"
-
-
-def test_set_requires_org(client: SirrClient):
-    with pytest.raises(ValueError, match="org"):
-        client.set("K", "v")
-
-
-def test_set_409_raises_secret_exists_error(mock_api: respx.Router):
-    mock_api.post("/orgs/myorg/secrets").mock(
-        return_value=httpx.Response(
-            409, json={"error": "secret_exists", "message": "secret already exists"}
-        )
-    )
-    with (
-        SirrClient(server="https://vault.example.com", token="t", org="myorg") as c,
-        pytest.raises(SecretExistsError) as exc_info,
-    ):
-        c.set("DUPE", "value")
-    assert exc_info.value.status == 409
-
-
-# ── get() — public (by ID) vs org (by key) ──────────────────────────────────
-
-
-def test_get_public_by_id(client: SirrClient, mock_api: respx.Router):
-    mock_api.get("/secrets/abc123").mock(
-        return_value=httpx.Response(200, json={"id": "abc123", "value": "secret"})
-    )
-    assert client.get("abc123") == "secret"
-
-
-def test_get_public_not_found(client: SirrClient, mock_api: respx.Router):
-    mock_api.get("/secrets/GONE").mock(
-        return_value=httpx.Response(404, json={"error": "not found"})
+def test_get_410_returns_none(client: SirrClient, mock_api: respx.Router):
+    mock_api.get("/secret/GONE").mock(
+        return_value=httpx.Response(410, content="Gone")
     )
     assert client.get("GONE") is None
 
-
-def test_get_org_by_key(mock_api: respx.Router):
-    mock_api.get("/orgs/myorg/secrets/MY_KEY").mock(
-        return_value=httpx.Response(200, json={"key": "MY_KEY", "value": "secret"})
+def test_get_not_found_raises(client: SirrClient, mock_api: respx.Router):
+    # In Sirr, 404 is NOT used for missing secrets (410 is used for oracle defense)
+    # But if it does happen, it should raise SirrError.
+    mock_api.get("/secret/MISSING").mock(
+        return_value=httpx.Response(404, content="Not Found")
     )
-    with SirrClient(server="https://vault.example.com", token="t", org="myorg") as c:
-        assert c.get("MY_KEY") == "secret"
+    with pytest.raises(SirrError) as exc:
+        client.get("MISSING")
+    assert exc.value.status == 404
 
+# ── inspect() ───────────────────────────────────────────────────────────────
 
-def test_get_org_via_param(client: SirrClient, mock_api: respx.Router):
-    mock_api.get("/orgs/acme/secrets/MY_KEY").mock(
-        return_value=httpx.Response(200, json={"key": "MY_KEY", "value": "val"})
+def test_inspect_returns_status(client: SirrClient, mock_api: respx.Router):
+    mock_api.head("/secret/abc123").mock(
+        return_value=httpx.Response(200, headers={
+            "x-sirr-created": "2024-01-15T10:00:00Z",
+            "x-sirr-reads-remaining": "5",
+            "x-sirr-owned": "true"
+        })
     )
-    assert client.get("MY_KEY", org="acme") == "val"
+    status = client.inspect("abc123")
+    assert status.reads_remaining == 5
+    assert status.owned is True
+    assert status.created == "2024-01-15T10:00:00Z"
 
-
-def test_get_error(client: SirrClient, mock_api: respx.Router):
-    mock_api.get("/secrets/BAD").mock(return_value=httpx.Response(500, json={"error": "internal"}))
-    with pytest.raises(SirrError) as exc_info:
-        client.get("BAD")
-    assert exc_info.value.status == 500
-    assert "internal" in exc_info.value.message
-
-
-def test_delete(client: SirrClient, mock_api: respx.Router):
-    mock_api.delete("/secrets/MY_KEY").mock(
-        return_value=httpx.Response(200, json={"deleted": True})
+def test_inspect_410_returns_none(client: SirrClient, mock_api: respx.Router):
+    mock_api.head("/secret/GONE").mock(
+        return_value=httpx.Response(410)
     )
-    client.delete("MY_KEY")
+    assert client.inspect("GONE") is None
 
+# ── patch() ─────────────────────────────────────────────────────────────────
 
-def test_delete_not_found(client: SirrClient, mock_api: respx.Router):
-    mock_api.delete("/secrets/GONE").mock(return_value=httpx.Response(404, json={"deleted": False}))
-    client.delete("GONE")  # should not raise
+def test_patch_updates_secret(client: SirrClient, mock_api: respx.Router):
+    mock_api.patch("/secret/abc123").mock(
+        return_value=httpx.Response(200, json={
+            "hash": "abc123",
+            "url": "http://localhost/secret/abc123",
+            "expires_at": 1800000000,
+            "reads_remaining": 10,
+            "owned": True
+        })
+    )
+    res = client.patch("abc123", value="new", reads=10)
+    assert res.reads_remaining == 10
 
+# ── burn() ──────────────────────────────────────────────────────────────────
 
-def test_list(client: SirrClient, mock_api: respx.Router):
+def test_burn_deletes_secret(client: SirrClient, mock_api: respx.Router):
+    mock_api.delete("/secret/abc123").mock(
+        return_value=httpx.Response(204)
+    )
+    client.burn("abc123")
+
+# ── audit() ─────────────────────────────────────────────────────────────────
+
+def test_audit_returns_events(client: SirrClient, mock_api: respx.Router):
+    mock_api.get("/secret/abc123/audit").mock(
+        return_value=httpx.Response(200, json={
+            "hash": "abc123",
+            "created_at": 1700000000,
+            "events": [
+                {"type": "secret.create", "at": 1700000000, "ip": "1.2.3.4"},
+                {"type": "secret.read", "at": 1700001000, "ip": "1.2.3.4"}
+            ]
+        })
+    )
+    res = client.audit("abc123")
+    assert len(res.events) == 2
+    assert res.events[0].type == "secret.create"
+
+# ── list() ──────────────────────────────────────────────────────────────────
+
+def test_list_returns_metas(client: SirrClient, mock_api: respx.Router):
     mock_api.get("/secrets").mock(
-        return_value=httpx.Response(
-            200,
-            json={
-                "secrets": [
-                    {
-                        "key": "A",
-                        "created_at": 1000,
-                        "read_count": 0,
-                        "expires_at": 2000,
-                        "max_reads": 5,
-                    },
-                    {
-                        "key": "B",
-                        "created_at": 1100,
-                        "read_count": 3,
-                    },
-                ]
-            },
-        )
+        return_value=httpx.Response(200, json=[
+            {
+                "hash": "abc123",
+                "created_at": 1700000000,
+                "ttl_expires_at": 1700003600,
+                "reads_remaining": 3,
+                "burned": False,
+                "burned_at": None,
+                "owned": True
+            }
+        ])
     )
-    metas = client.list()
-    assert len(metas) == 2
-    assert metas[0].key == "A"
-    assert metas[0].expires_at == 2000
-    assert metas[1].max_reads is None
+    res = client.list()
+    assert len(res) == 1
+    assert res[0].hash == "abc123"
+    assert res[0].reads_remaining == 3
 
+# ── helpers ─────────────────────────────────────────────────────────────────
 
 def test_pull_all(client: SirrClient, mock_api: respx.Router):
     mock_api.get("/secrets").mock(
-        return_value=httpx.Response(
-            200,
-            json={
-                "secrets": [
-                    {"key": "X", "created_at": 1, "read_count": 0},
-                    {"key": "Y", "created_at": 2, "read_count": 0},
-                ]
-            },
-        )
+        return_value=httpx.Response(200, json=[
+            {"hash": "h1", "created_at": 1, "ttl_expires_at": None, "reads_remaining": None, "burned": False, "burned_at": None, "owned": True},
+            {"hash": "h2", "created_at": 1, "ttl_expires_at": None, "reads_remaining": None, "burned": True, "burned_at": 2, "owned": True},
+        ])
     )
-    mock_api.get("/secrets/X").mock(
-        return_value=httpx.Response(200, json={"key": "X", "value": "vx"})
-    )
-    mock_api.get("/secrets/Y").mock(return_value=httpx.Response(404, json={"error": "burned"}))
-    result = client.pull_all()
-    assert result == {"X": "vx"}
-
-
-def test_prune(client: SirrClient, mock_api: respx.Router):
-    mock_api.post("/prune").mock(return_value=httpx.Response(200, json={"pruned": 3}))
-    assert client.prune() == 3
-
+    mock_api.get("/secret/h1").mock(return_value=httpx.Response(200, content="v1"))
+    # h2 is burned, so client.pull_all should not call get() for it or it should be skipped
+    res = client.pull_all()
+    assert res == {"h1": "v1"}
 
 def test_env_context_manager(client: SirrClient, mock_api: respx.Router):
     mock_api.get("/secrets").mock(
-        return_value=httpx.Response(
-            200,
-            json={"secrets": [{"key": "SIRR_TEST_VAR", "created_at": 1, "read_count": 0}]},
-        )
+        return_value=httpx.Response(200, json=[
+            {"hash": "VAR1", "created_at": 1, "ttl_expires_at": None, "reads_remaining": None, "burned": False, "burned_at": None, "owned": True}
+        ])
     )
-    mock_api.get("/secrets/SIRR_TEST_VAR").mock(
-        return_value=httpx.Response(200, json={"key": "SIRR_TEST_VAR", "value": "injected"})
-    )
+    mock_api.get("/secret/VAR1").mock(return_value=httpx.Response(200, content="val1"))
 
-    assert os.environ.get("SIRR_TEST_VAR") is None
+    assert "VAR1" not in os.environ
     with client.env():
-        assert os.environ["SIRR_TEST_VAR"] == "injected"
-    assert os.environ.get("SIRR_TEST_VAR") is None
-
-
-def test_env_restores_on_exception(client: SirrClient, mock_api: respx.Router):
-    mock_api.get("/secrets").mock(
-        return_value=httpx.Response(
-            200,
-            json={"secrets": [{"key": "SIRR_EXC_VAR", "created_at": 1, "read_count": 0}]},
-        )
-    )
-    mock_api.get("/secrets/SIRR_EXC_VAR").mock(
-        return_value=httpx.Response(200, json={"key": "SIRR_EXC_VAR", "value": "temp"})
-    )
-
-    with pytest.raises(RuntimeError), client.env():
-        raise RuntimeError("boom")
-    assert os.environ.get("SIRR_EXC_VAR") is None
-
-
-def test_env_restores_original_value(client: SirrClient, mock_api: respx.Router):
-    mock_api.get("/secrets").mock(
-        return_value=httpx.Response(
-            200,
-            json={"secrets": [{"key": "SIRR_ORIG_VAR", "created_at": 1, "read_count": 0}]},
-        )
-    )
-    mock_api.get("/secrets/SIRR_ORIG_VAR").mock(
-        return_value=httpx.Response(200, json={"key": "SIRR_ORIG_VAR", "value": "new"})
-    )
-
-    os.environ["SIRR_ORIG_VAR"] = "original"
-    try:
-        with client.env():
-            assert os.environ["SIRR_ORIG_VAR"] == "new"
-        assert os.environ["SIRR_ORIG_VAR"] == "original"
-    finally:
-        del os.environ["SIRR_ORIG_VAR"]
-
-
-def test_context_manager():
-    with (
-        respx.mock(base_url="https://v.test") as router,
-        SirrClient(server="https://v.test", token="t") as c,
-    ):
-        router.post("/prune").mock(return_value=httpx.Response(200, json={"pruned": 0}))
-        assert c.prune() == 0
-
-
-def test_url_encoding(client: SirrClient, mock_api: respx.Router):
-    mock_api.get("/secrets/my%2Fkey").mock(
-        return_value=httpx.Response(200, json={"key": "my/key", "value": "v"})
-    )
-    assert client.get("my/key") == "v"
-
-
-def test_set_requires_org_no_client_org():
-    with pytest.raises(ValueError, match="org"), SirrClient("http://localhost:8080", "t") as c:
-        c.set("K", "v")
+        assert os.environ["VAR1"] == "val1"
+    assert "VAR1" not in os.environ

@@ -1,221 +1,104 @@
 from __future__ import annotations
 
 from dataclasses import dataclass
+from typing import Any
 
 
 @dataclass(frozen=True, slots=True)
-class SecretMeta:
-    """Metadata for a stored secret (never contains the value)."""
+class SecretResponse:
+    """Response from POST /secret and PATCH /secret/{hash}."""
 
-    key: str
-    created_at: int
-    read_count: int
-    delete: bool = True
-    expires_at: int | None = None
-    max_reads: int | None = None
-    owner_id: str | None = None
+    hash: str
+    url: str
+    expires_at: int | None
+    reads_remaining: int | None
+    owned: bool
 
     @classmethod
-    def from_dict(cls, data: dict) -> SecretMeta:
+    def from_dict(cls, data: dict[str, Any]) -> SecretResponse:
         return cls(
-            key=data["key"],
-            created_at=data["created_at"],
-            read_count=data["read_count"],
-            delete=data.get("delete", True),
+            hash=data["hash"],
+            url=data["url"],
             expires_at=data.get("expires_at"),
-            max_reads=data.get("max_reads"),
-            owner_id=data.get("owner_id"),
+            reads_remaining=data.get("reads_remaining"),
+            owned=data.get("owned", False),
         )
 
 
 @dataclass(frozen=True, slots=True)
-class SecretHead:
-    """Metadata returned by HEAD /secrets/:key — does not consume a read."""
+class SecretStatus:
+    """Metadata returned by HEAD /secret/{hash}. Does not consume a read."""
 
-    key: str
-    read_count: int
-    reads_remaining: int | None  # None means unlimited
-    delete: bool
-    created_at: int
-    sealed: bool
-    expires_at: int | None = None
+    created: str
+    ttl_expires: str | None
+    reads_remaining: int | None
+    owned: bool
 
     @classmethod
-    def from_headers(cls, key: str, headers: dict) -> SecretHead:
-        remaining_raw = headers.get("x-sirr-reads-remaining", "unlimited")
-        reads_remaining = None if remaining_raw == "unlimited" else int(remaining_raw)
-        expires_raw = headers.get("x-sirr-expires-at")
+    def from_headers(cls, headers: dict[str, str]) -> SecretStatus:
+        reads_raw = headers.get("x-sirr-reads-remaining")
         return cls(
-            key=key,
-            read_count=int(headers["x-sirr-read-count"]),
-            reads_remaining=reads_remaining,
-            delete=headers.get("x-sirr-delete", "true").lower() == "true",
-            created_at=int(headers["x-sirr-created-at"]),
-            sealed=headers.get("x-sirr-status") == "sealed",
-            expires_at=int(expires_raw) if expires_raw else None,
+            created=headers.get("x-sirr-created", ""),
+            ttl_expires=headers.get("x-sirr-ttl-expires"),
+            reads_remaining=int(reads_raw) if reads_raw is not None else None,
+            owned=headers.get("x-sirr-owned") == "true",
         )
 
 
 @dataclass(frozen=True, slots=True)
 class AuditEvent:
-    """A single audit log entry."""
+    """Single audit event from GET /secret/{hash}/audit."""
 
-    id: int
-    timestamp: int
-    action: str
-    source_ip: str
-    success: bool
-    key: str | None = None
-    detail: str | None = None
+    type: str
+    at: int
+    ip: str
 
     @classmethod
-    def from_dict(cls, data: dict) -> AuditEvent:
+    def from_dict(cls, data: dict[str, Any]) -> AuditEvent:
         return cls(
-            id=data["id"],
-            timestamp=data["timestamp"],
-            action=data["action"],
-            source_ip=data["source_ip"],
-            success=data["success"],
-            key=data.get("key"),
-            detail=data.get("detail"),
+            type=data["type"],
+            at=data["at"],
+            ip=data["ip"],
         )
 
 
 @dataclass(frozen=True, slots=True)
-class Webhook:
-    """A registered webhook (signing secret redacted)."""
+class AuditResponse:
+    """Response from GET /secret/{hash}/audit."""
 
-    id: str
-    url: str
-    events: list[str]
+    hash: str
     created_at: int
+    events: list[AuditEvent]
 
     @classmethod
-    def from_dict(cls, data: dict) -> Webhook:
+    def from_dict(cls, data: dict[str, Any]) -> AuditResponse:
         return cls(
-            id=data["id"],
-            url=data["url"],
-            events=data["events"],
+            hash=data["hash"],
             created_at=data["created_at"],
+            events=[AuditEvent.from_dict(e) for e in data.get("events", [])],
         )
 
 
 @dataclass(frozen=True, slots=True)
-class WebhookCreateResult:
-    """Result of webhook creation — includes the signing secret (shown once)."""
+class SecretMetadata:
+    """Metadata for a secret from GET /secrets."""
 
-    id: str
-    secret: str
-
-    @classmethod
-    def from_dict(cls, data: dict) -> WebhookCreateResult:
-        return cls(id=data["id"], secret=data["secret"])
-
-
-@dataclass(frozen=True, slots=True)
-class ApiKeyCreateResult:
-    """Result of key creation via POST /me/keys — includes the raw key (shown once)."""
-
-    id: str
-    name: str
-    key: str
-    valid_after: int
-    valid_before: int
+    hash: str
+    created_at: int
+    ttl_expires_at: int | None
+    reads_remaining: int | None
+    burned: bool
+    burned_at: int | None
+    owned: bool
 
     @classmethod
-    def from_dict(cls, data: dict) -> ApiKeyCreateResult:
+    def from_dict(cls, data: dict[str, Any]) -> SecretMetadata:
         return cls(
-            id=data["id"],
-            name=data["name"],
-            key=data["key"],
-            valid_after=data["valid_after"],
-            valid_before=data["valid_before"],
-        )
-
-
-@dataclass(frozen=True, slots=True)
-class Principal:
-    """A principal (user or service account) within an org."""
-
-    id: str
-    name: str
-    role: str
-    org_id: str
-    metadata: dict | None = None
-    created_at: int | None = None
-
-    @classmethod
-    def from_dict(cls, data: dict) -> Principal:
-        return cls(
-            id=data["id"],
-            name=data["name"],
-            role=data["role"],
-            org_id=data["org_id"],
-            metadata=data.get("metadata"),
-            created_at=data.get("created_at"),
-        )
-
-
-@dataclass(frozen=True, slots=True)
-class Org:
-    """An organization."""
-
-    id: str
-    name: str
-    created_at: int | None = None
-    metadata: dict | None = None
-
-    @classmethod
-    def from_dict(cls, data: dict) -> Org:
-        return cls(
-            id=data["id"],
-            name=data["name"],
-            created_at=data.get("created_at"),
-            metadata=data.get("metadata"),
-        )
-
-
-@dataclass(frozen=True, slots=True)
-class Role:
-    """A role within an org. `permissions` is a letter-string (e.g. 'RW')."""
-
-    name: str
-    permissions: str
-    org_id: str | None = None
-    built_in: bool = False
-    created_at: int | None = None
-
-    @classmethod
-    def from_dict(cls, data: dict) -> Role:
-        return cls(
-            name=data["name"],
-            permissions=data["permissions"],
-            org_id=data.get("org_id"),
-            built_in=data.get("built_in", False),
-            created_at=data.get("created_at"),
-        )
-
-
-@dataclass(frozen=True, slots=True)
-class MeInfo:
-    """Current authenticated principal info."""
-
-    id: str
-    name: str
-    role: str
-    org_id: str
-    metadata: dict | None = None
-    created_at: int | None = None
-    keys: list | None = None
-
-    @classmethod
-    def from_dict(cls, data: dict) -> MeInfo:
-        return cls(
-            id=data["id"],
-            name=data["name"],
-            role=data["role"],
-            org_id=data["org_id"],
-            metadata=data.get("metadata"),
-            created_at=data.get("created_at"),
-            keys=data.get("keys"),
+            hash=data["hash"],
+            created_at=data["created_at"],
+            ttl_expires_at=data.get("ttl_expires_at"),
+            reads_remaining=data.get("reads_remaining"),
+            burned=data.get("burned", False),
+            burned_at=data.get("burned_at"),
+            owned=data.get("owned", False),
         )

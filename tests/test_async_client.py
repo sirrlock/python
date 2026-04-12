@@ -1,160 +1,137 @@
 from __future__ import annotations
 
 import os
-
+import json
 import httpx
 import pytest
 import respx
 
-from sirr import AsyncSirrClient, SecretExistsError, SirrError
+from sirr import AsyncSirrClient, SirrError
 
-# ── push() — public dead-drop ────────────────────────────────────────────────
+# ── push() ──────────────────────────────────────────────────────────────────
 
-
-async def test_push_returns_id(async_client: AsyncSirrClient, mock_api: respx.Router):
-    mock_api.post("/secrets").mock(return_value=httpx.Response(200, json={"id": "abcd1234" * 8}))
-    result = await async_client.push("v", ttl=60, reads=2)
-    assert result["id"] == "abcd1234" * 8
-
-
-async def test_push_no_key_in_body(async_client: AsyncSirrClient, mock_api: respx.Router):
-    import json
-
-    route = mock_api.post("/secrets").mock(
-        return_value=httpx.Response(200, json={"id": "deadbeef" * 8})
+async def test_push_returns_metadata(async_client: AsyncSirrClient, mock_api: respx.Router):
+    mock_api.post("/secret").mock(
+        return_value=httpx.Response(201, json={
+            "hash": "abc123",
+            "url": "http://localhost:7843/secret/abc123",
+            "expires_at": 1700003600,
+            "reads_remaining": 1,
+            "owned": False
+        })
     )
-    await async_client.push("val")
-    parsed = json.loads(route.calls[0].request.content)
-    assert "key" not in parsed
-    assert parsed["value"] == "val"
+    result = await async_client.push("secret-value", ttl=3600, reads=1)
+    assert result.hash == "abc123"
+    assert result.reads_remaining == 1
+    assert result.owned is False
 
+# ── get() ───────────────────────────────────────────────────────────────────
 
-# ── set() — org-scoped named secret ─────────────────────────────────────────
-
-
-async def test_set_returns_key(mock_api: respx.Router):
-    mock_api.post("/orgs/myorg/secrets").mock(return_value=httpx.Response(200, json={"key": "K"}))
-    async with AsyncSirrClient(server="https://vault.example.com", token="t", org="myorg") as c:
-        result = await c.set("K", "v")
-    assert result["key"] == "K"
-
-
-async def test_set_requires_org(async_client: AsyncSirrClient):
-    with pytest.raises(ValueError, match="org"):
-        await async_client.set("K", "v")
-
-
-async def test_set_409_raises_secret_exists_error(mock_api: respx.Router):
-    mock_api.post("/orgs/myorg/secrets").mock(
-        return_value=httpx.Response(
-            409, json={"error": "secret_exists", "message": "secret already exists"}
-        )
+async def test_get_returns_plaintext(async_client: AsyncSirrClient, mock_api: respx.Router):
+    mock_api.get("/secret/abc123").mock(
+        return_value=httpx.Response(200, content="my-secret")
     )
-    async with AsyncSirrClient(server="https://vault.example.com", token="t", org="myorg") as c:
-        with pytest.raises(SecretExistsError) as exc_info:
-            await c.set("DUPE", "value")
-    assert exc_info.value.status == 409
+    assert await async_client.get("abc123") == "my-secret"
 
-
-# ── get() — public (by ID) vs org (by key) ──────────────────────────────────
-
-
-async def test_get_public_by_id(async_client: AsyncSirrClient, mock_api: respx.Router):
-    mock_api.get("/secrets/abc123").mock(
-        return_value=httpx.Response(200, json={"id": "abc123", "value": "secret"})
-    )
-    assert await async_client.get("abc123") == "secret"
-
-
-async def test_get_org_by_key(mock_api: respx.Router):
-    mock_api.get("/orgs/myorg/secrets/MY_KEY").mock(
-        return_value=httpx.Response(200, json={"key": "MY_KEY", "value": "secret"})
-    )
-    async with AsyncSirrClient(server="https://vault.example.com", token="t", org="myorg") as c:
-        assert await c.get("MY_KEY") == "secret"
-
-
-async def test_get_not_found(async_client: AsyncSirrClient, mock_api: respx.Router):
-    mock_api.get("/secrets/GONE").mock(
-        return_value=httpx.Response(404, json={"error": "not found"})
+async def test_get_410_returns_none(async_client: AsyncSirrClient, mock_api: respx.Router):
+    mock_api.get("/secret/GONE").mock(
+        return_value=httpx.Response(410, content="Gone")
     )
     assert await async_client.get("GONE") is None
 
+# ── inspect() ───────────────────────────────────────────────────────────────
 
-async def test_get_error(async_client: AsyncSirrClient, mock_api: respx.Router):
-    mock_api.get("/secrets/BAD").mock(return_value=httpx.Response(500, json={"error": "boom"}))
-    with pytest.raises(SirrError) as exc_info:
-        await async_client.get("BAD")
-    assert exc_info.value.status == 500
+async def test_inspect_returns_status(async_client: AsyncSirrClient, mock_api: respx.Router):
+    mock_api.head("/secret/abc123").mock(
+        return_value=httpx.Response(200, headers={
+            "x-sirr-created": "2024-01-15T10:00:00Z",
+            "x-sirr-reads-remaining": "5",
+            "x-sirr-owned": "true"
+        })
+    )
+    status = await async_client.inspect("abc123")
+    assert status.reads_remaining == 5
+    assert status.owned is True
 
+# ── patch() ─────────────────────────────────────────────────────────────────
 
-async def test_delete(async_client: AsyncSirrClient, mock_api: respx.Router):
-    mock_api.delete("/secrets/K").mock(return_value=httpx.Response(200, json={"deleted": True}))
-    await async_client.delete("K")
+async def test_patch_updates_secret(async_client: AsyncSirrClient, mock_api: respx.Router):
+    mock_api.patch("/secret/abc123").mock(
+        return_value=httpx.Response(200, json={
+            "hash": "abc123",
+            "url": "http://localhost/secret/abc123",
+            "expires_at": 1800000000,
+            "reads_remaining": 10,
+            "owned": True
+        })
+    )
+    res = await async_client.patch("abc123", value="new", reads=10)
+    assert res.reads_remaining == 10
 
+# ── burn() ──────────────────────────────────────────────────────────────────
 
-async def test_list(async_client: AsyncSirrClient, mock_api: respx.Router):
+async def test_burn_deletes_secret(async_client: AsyncSirrClient, mock_api: respx.Router):
+    mock_api.delete("/secret/abc123").mock(
+        return_value=httpx.Response(204)
+    )
+    await async_client.burn("abc123")
+
+# ── audit() ─────────────────────────────────────────────────────────────────
+
+async def test_audit_returns_events(async_client: AsyncSirrClient, mock_api: respx.Router):
+    mock_api.get("/secret/abc123/audit").mock(
+        return_value=httpx.Response(200, json={
+            "hash": "abc123",
+            "created_at": 1700000000,
+            "events": [
+                {"type": "secret.create", "at": 1700000000, "ip": "1.2.3.4"}
+            ]
+        })
+    )
+    res = await async_client.audit("abc123")
+    assert len(res.events) == 1
+
+# ── list() ──────────────────────────────────────────────────────────────────
+
+async def test_list_returns_metas(async_client: AsyncSirrClient, mock_api: respx.Router):
     mock_api.get("/secrets").mock(
-        return_value=httpx.Response(
-            200,
-            json={
-                "secrets": [
-                    {"key": "A", "created_at": 1, "read_count": 0, "max_reads": 3},
-                ]
-            },
-        )
+        return_value=httpx.Response(200, json=[
+            {
+                "hash": "abc123",
+                "created_at": 1700000000,
+                "ttl_expires_at": 1700003600,
+                "reads_remaining": 3,
+                "burned": False,
+                "burned_at": None,
+                "owned": True
+            }
+        ])
     )
-    metas = await async_client.list()
-    assert len(metas) == 1
-    assert metas[0].max_reads == 3
+    res = await async_client.list()
+    assert len(res) == 1
+    assert res[0].hash == "abc123"
 
+# ── helpers ─────────────────────────────────────────────────────────────────
 
-async def test_pull_all_concurrent(async_client: AsyncSirrClient, mock_api: respx.Router):
+async def test_pull_all(async_client: AsyncSirrClient, mock_api: respx.Router):
     mock_api.get("/secrets").mock(
-        return_value=httpx.Response(
-            200,
-            json={
-                "secrets": [
-                    {"key": "A", "created_at": 1, "read_count": 0},
-                    {"key": "B", "created_at": 2, "read_count": 0},
-                ]
-            },
-        )
+        return_value=httpx.Response(200, json=[
+            {"hash": "h1", "created_at": 1, "ttl_expires_at": None, "reads_remaining": None, "burned": False, "burned_at": None, "owned": True}
+        ])
     )
-    mock_api.get("/secrets/A").mock(
-        return_value=httpx.Response(200, json={"key": "A", "value": "va"})
-    )
-    mock_api.get("/secrets/B").mock(
-        return_value=httpx.Response(200, json={"key": "B", "value": "vb"})
-    )
-    result = await async_client.pull_all()
-    assert result == {"A": "va", "B": "vb"}
-
-
-async def test_prune(async_client: AsyncSirrClient, mock_api: respx.Router):
-    mock_api.post("/prune").mock(return_value=httpx.Response(200, json={"pruned": 5}))
-    assert await async_client.prune() == 5
-
+    mock_api.get("/secret/h1").mock(return_value=httpx.Response(200, content="v1"))
+    res = await async_client.pull_all()
+    assert res == {"h1": "v1"}
 
 async def test_env(async_client: AsyncSirrClient, mock_api: respx.Router):
     mock_api.get("/secrets").mock(
-        return_value=httpx.Response(
-            200,
-            json={"secrets": [{"key": "ASYNC_TEST_VAR", "created_at": 1, "read_count": 0}]},
-        )
+        return_value=httpx.Response(200, json=[
+            {"hash": "ASYNC_VAR", "created_at": 1, "ttl_expires_at": None, "reads_remaining": None, "burned": False, "burned_at": None, "owned": True}
+        ])
     )
-    mock_api.get("/secrets/ASYNC_TEST_VAR").mock(
-        return_value=httpx.Response(200, json={"key": "ASYNC_TEST_VAR", "value": "async_val"})
-    )
+    mock_api.get("/secret/ASYNC_VAR").mock(return_value=httpx.Response(200, content="async_val"))
 
-    assert os.environ.get("ASYNC_TEST_VAR") is None
+    assert "ASYNC_VAR" not in os.environ
     async with async_client.env():
-        assert os.environ["ASYNC_TEST_VAR"] == "async_val"
-    assert os.environ.get("ASYNC_TEST_VAR") is None
-
-
-async def test_async_context_manager():
-    with respx.mock(base_url="https://v.test") as router:
-        async with AsyncSirrClient(server="https://v.test", token="t") as c:
-            router.post("/prune").mock(return_value=httpx.Response(200, json={"pruned": 0}))
-            assert await c.prune() == 0
+        assert os.environ["ASYNC_VAR"] == "async_val"
+    assert "ASYNC_VAR" not in os.environ
