@@ -12,17 +12,36 @@ pip install sirr
 
 from sirr import SirrClient
 
-client = SirrClient(server='http://localhost:39999', token='your-key')
+client = SirrClient(server='https://sirr.sirrlock.com', token='your-key')
 
-client.push('DB_PASSWORD', 's3cr3t', ttl=3600, reads=1)
-value = client.get('DB_PASSWORD')    # None if burned/expired
-client.delete('DB_PASSWORD')
-secrets = client.list()              # list[SecretMeta]
-all_secrets = client.pull_all()      # dict[str, str]
-client.prune()
+# 1. Push a secret. Returns metadata including the hash.
+res = client.push('my-password', ttl=3600, reads=1)
+hash = res.hash
+
+# 2. Read a secret's value. Consumes a read.
+# Returns None if 410 (burned, expired, or never existed).
+value = client.get(hash)
+
+# 3. Metadata only (HEAD). Does NOT consume a read.
+status = client.inspect(hash)
+
+# 4. Update an existing secret (owner only).
+client.patch(hash, value='new-value', reads=5)
+
+# 5. Burn immediately.
+client.burn(hash)
+
+# 6. Audit trail (owner only).
+audit = client.audit(hash)
+
+# 7. List all owned secrets.
+metas = client.list()
+
+# Helper: pull all owned secrets into a dict.
+all_secrets = client.pull_all()
 
 with client.env():
-    # os.environ populated with all secrets
+    # os.environ populated with all owned secrets
     pass
 
 ## Async Usage
@@ -31,16 +50,16 @@ from sirr import AsyncSirrClient
 import asyncio
 
 async def main():
-    client = AsyncSirrClient(server='http://localhost:39999', token='your-key')
-    await client.push('KEY', 'value')
-    value = await client.get('KEY')
-    async with client.env():
-        pass
+    async with AsyncSirrClient(server='https://sirr.sirrlock.com', token='your-key') as client:
+        res = await client.push('value')
+        value = await client.get(res.hash)
+        async with client.env():
+            pass
 
 ## Errors
 
-- get() returns None on 404 — never raises for not-found
-- All other non-2xx responses raise SirrError (has .status int)
+- get() returns None on 410 (gone/not found) — never raises for missing secrets.
+- All other non-2xx responses raise SirrError (has .status int).
 
 ## Source
 
